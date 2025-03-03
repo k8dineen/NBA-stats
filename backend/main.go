@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/rs/cors"
@@ -35,6 +36,11 @@ type Player struct {
 
 type PlayerResponse struct {
 	Data []Player `json:"data"`
+}
+
+// Wrapper for player ID lookup response
+type PlayerIdResponse struct {
+	Data Player `json:"data"`
 }
 
 // Load API Key from .env
@@ -71,7 +77,12 @@ func fetchAPI(apiURL string, target interface{}) error {
 }
 
 // HTTP Handler for searching players
-func playerHandler(w http.ResponseWriter, r *http.Request) {
+func playerNameHandler(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/players/")
+	if id == "" {
+		http.Error(w, "Missing player ID", http.StatusBadRequest)
+		return
+	}
 	query := r.URL.Query().Get("search")
 	if query == "" {
 		http.Error(w, "Missing search query", http.StatusBadRequest)
@@ -91,9 +102,31 @@ func playerHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+// HTTP Handler for searching players by ID
+func playerIdHandler(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/players/")
+	if id == "" {
+		http.Error(w, "Missing player ID", http.StatusBadRequest)
+		return
+	}
+
+	apiURL := "https://api.balldontlie.io/v1/players/" + id
+	var result PlayerIdResponse
+
+	err := fetchAPI(apiURL, &result)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error fetching players: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 func main() {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/players", playerHandler)
+	mux.HandleFunc("/players", playerNameHandler) //Search by name
+	mux.HandleFunc("/players/", playerIdHandler)  //Search by id
 
 	// Enable CORS
 	handler := cors.New(cors.Options{

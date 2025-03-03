@@ -10,9 +10,10 @@ export async function searchPlayerByName(name) {
 
 
 export async function searchPlayerById(id) {
-  const response = await fetch(`${API_URL}/players/${id}`);
-  if (!response.ok) {
-    throw new Error("Failed to fetch player by id");
+    const response = await fetch(`${API_URL}/players/${id}`); // Ensure the ID is appended properly
+    if (!response.ok) {
+      throw new Error(`Failed to fetch player by ID: ${response.statusText}`);
+    }
+    return response.json();
   }
-  return response.json();
-}
+  
