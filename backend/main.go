@@ -1,16 +1,15 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
 
 	"github.com/joho/godotenv"
+	"github.com/rs/cors"
 )
 
 type Team struct {
@@ -34,33 +33,21 @@ type Player struct {
 	Team         Team   `json:"team"`
 }
 
-type TeamResponse struct {
-	Data []Team `json:"data"`
-}
-
 type PlayerResponse struct {
 	Data []Player `json:"data"`
 }
 
-type PlayerIdResponse struct {
-	//single player object, not an array
-	Data Player `json:"data"`
-}
-
 // Load API Key from .env
 func loadAPIKey() string {
-	// Load .env file (if exists)
 	godotenv.Load()
-
 	apiKey := os.Getenv("BALLDONTLIE_API_KEY")
 	if apiKey == "" {
 		log.Fatal("API Key is missing! Set BALLDONTLIE_API_KEY in your environment.")
 	}
-
 	return apiKey
 }
 
-// Fetch JSON from API with Authorization Header
+// Fetch JSON from API
 func fetchAPI(apiURL string, target interface{}) error {
 	apiKey := loadAPIKey()
 	client := &http.Client{}
@@ -69,9 +56,7 @@ func fetchAPI(apiURL string, target interface{}) error {
 		return err
 	}
 
-	// Set API Key in Headers
 	req.Header.Set("Authorization", apiKey)
-
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -85,105 +70,40 @@ func fetchAPI(apiURL string, target interface{}) error {
 	return json.NewDecoder(resp.Body).Decode(target)
 }
 
-// Search for teams
-func searchTeam(teamName string) {
-	apiURL := "https://api.balldontlie.io/v1/teams"
-	var result TeamResponse
-
-	err := fetchAPI(apiURL, &result)
-	if err != nil {
-		log.Fatalf("Error fetching teams: %v", err)
+// HTTP Handler for searching players
+func playerHandler(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("search")
+	if query == "" {
+		http.Error(w, "Missing search query", http.StatusBadRequest)
+		return
 	}
 
-	// Search for the team
-	found := false
-	for _, team := range result.Data {
-		if strings.Contains(strings.ToLower(team.Name), strings.ToLower(teamName)) {
-			fmt.Printf("Found Team: %d: %s\n", team.ID, team.Name)
-			found = true
-		}
-	}
-
-	if !found {
-		fmt.Println("Team not found.")
-	}
-}
-
-// Search for players
-func searchPlayer(playerName string) {
-	apiURL := "https://api.balldontlie.io/v1/players?search=" + url.QueryEscape(playerName)
+	apiURL := "https://api.balldontlie.io/v1/players?search=" + url.QueryEscape(query)
 	var result PlayerResponse
 
 	err := fetchAPI(apiURL, &result)
 	if err != nil {
-		log.Fatalf("Error fetching players: %v", err)
-	}
-
-	// Display players found
-	if len(result.Data) == 0 {
-		fmt.Println("No players found.")
+		http.Error(w, fmt.Sprintf("Error fetching players: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	for _, player := range result.Data {
-		fmt.Printf("ID: %d | Player: %s %s | Team: %s | Stats: %s %s #%s\n", player.ID, player.First, player.Last, player.Team.Name, player.Position, player.Height, player.Jersey)
-	}
-}
-
-// Search for players by ID
-func searchPlayerId(playerId string) {
-	apiURL := "https://api.balldontlie.io/v1/players/" + url.QueryEscape(playerId)
-	var player PlayerIdResponse
-
-	err := fetchAPI(apiURL, &player)
-	if err != nil {
-		log.Fatalf("Error fetching players: %v", err)
-	}
-
-	// Display player details
-	fmt.Printf("ID: %d | Player: %s %s | Team: %s | Stats: %s %s #%s\n",
-		player.Data.ID, player.Data.First, player.Data.Last, player.Data.Team.Name, player.Data.Position, player.Data.Height, player.Data.Jersey)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
 
 func main() {
-	scanner := bufio.NewScanner(os.Stdin)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/players", playerHandler)
 
-	for {
-		fmt.Println("\nChoose an option:")
-		fmt.Println("1: Search for a Team")
-		fmt.Println("2: Search for a Player")
-		fmt.Println("3: Search for Player by ID")
-		fmt.Println("4: Exit")
+	// Enable CORS
+	handler := cors.New(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:3000"}, // Allow requests from React
+		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		AllowCredentials: true,
+	}).Handler(mux)
 
-		fmt.Print("Enter choice: ")
-		scanner.Scan()
-		choice := scanner.Text()
-
-		switch choice {
-		case "1":
-			fmt.Print("Enter team name: ")
-			scanner.Scan()
-			teamName := scanner.Text()
-			searchTeam(teamName)
-
-		case "2":
-			fmt.Print("Enter player name: ")
-			scanner.Scan()
-			playerName := scanner.Text()
-			searchPlayer(playerName)
-
-		case "3":
-			fmt.Print("Enter player ID: ")
-			scanner.Scan()
-			playerId := scanner.Text()
-			searchPlayerId(playerId)
-
-		case "4":
-			fmt.Println("Exiting...")
-			return
-
-		default:
-			fmt.Println("Invalid choice, try again.")
-		}
-	}
+	port := "8080"
+	fmt.Printf("Server running on http://localhost:%s\n", port)
+	log.Fatal(http.ListenAndServe(":"+port, handler))
 }
