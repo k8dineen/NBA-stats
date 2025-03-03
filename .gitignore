@@ -1,1 +1,7 @@
+# Ignore system & dependency files
+.DS_Store
+frontend/node_modules/
+
+# Ignore React build output
+frontend/build/
 .env
